@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "spendly",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "venv/Scripts/python",
       "runtimeArgs": ["app.py"],
       "port": 5001
     }
