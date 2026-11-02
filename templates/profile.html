@@ -16,6 +16,31 @@
             </div>
         </div>
 
+        <div class="filter-bar">
+            <div class="filter-presets">
+                {% for p in presets %}
+                <a href="{{ p.url }}" class="filter-preset{% if active_preset == p.key %} filter-preset--active{% endif %}">{{ p.label }}</a>
+                {% endfor %}
+                {% if active_preset == 'custom' %}
+                <span class="filter-preset filter-preset--active">Custom</span>
+                {% endif %}
+            </div>
+            <form class="filter-custom" action="{{ url_for('profile') }}" method="get">
+                <div class="filter-dates">
+                    <label class="filter-field">
+                        <span class="filter-field-label">From</span>
+                        <input type="date" name="from" value="{{ date_from }}" class="form-input filter-date-input" required>
+                    </label>
+                    <label class="filter-field">
+                        <span class="filter-field-label">To</span>
+                        <input type="date" name="to" value="{{ date_to }}" class="form-input filter-date-input" required>
+                    </label>
+                </div>
+                <button type="submit" class="btn-dark-outline filter-btn">Filter</button>
+            </form>
+            <p class="filter-label">{{ date_label }}</p>
+        </div>
+
         <div class="profile-stats">
             <div class="profile-stat">
                 <span class="profile-stat-label">Total spent</span>
