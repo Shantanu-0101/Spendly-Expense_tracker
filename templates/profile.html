@@ -58,6 +58,9 @@
 
         <div class="profile-card">
             <h2 class="profile-card-title">Recent transactions</h2>
+            {% if transactions|length < stats.transaction_count %}
+            <p class="profile-card-note">Showing the latest {{ transactions|length }} of {{ stats.transaction_count }} transactions</p>
+            {% endif %}
             <div class="profile-table-wrap">
                 <table class="profile-table">
                     <thead>

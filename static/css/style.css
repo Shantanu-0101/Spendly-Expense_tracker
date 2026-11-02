@@ -698,6 +698,12 @@ a { color: inherit; text-decoration: none; }
     margin-bottom: 1.25rem;
 }
 
+.profile-card-note {
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+    margin: -0.75rem 0 1rem;
+}
+
 .profile-table-wrap {
     overflow-x: auto;
 }

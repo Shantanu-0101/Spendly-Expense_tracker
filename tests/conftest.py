@@ -2,11 +2,18 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 import database.db as db
-from app import app as flask_app
+
+
+@pytest.fixture(scope="session")
+def flask_app(tmp_path_factory):
+    # app.py runs init_db()/seed_db() on import, so point DB_PATH away from spendly.db first.
+    db.DB_PATH = str(tmp_path_factory.mktemp("import") / "import.db")
+    from app import app
+    return app
 
 
 @pytest.fixture
-def app(tmp_path, monkeypatch):
+def app(flask_app, tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "test.db"))
     db.init_db()
     flask_app.config.update(TESTING=True)

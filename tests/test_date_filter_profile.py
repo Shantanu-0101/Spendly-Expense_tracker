@@ -37,6 +37,17 @@ def test_profile_requires_login(client):
     assert "/login" in response.headers["Location"]
 
 
+def test_stale_session_for_missing_user_redirects_to_login(client, login):
+    login(9999, "Ghost")
+
+    response = client.get("/profile")
+
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
 # ------------------------------------------------------------------ #
 # Default range                                                       #
 # ------------------------------------------------------------------ #
@@ -133,13 +144,13 @@ def test_last_month_preset_is_highlighted_and_scoped(client, user, add_expense):
     add_expense(user, 70.00, "Shopping", last_month_start.isoformat(), "Last month buy")
     add_expense(user, 5.00, "Food", first_of_month.isoformat(), "This month snack")
 
-    html = html_of(client.get(
-        f"/profile?from={last_month_start.isoformat()}&to={last_month_end.isoformat()}"
-    ))
+    html = html_of(client.get("/profile?range=last_month"))
 
     assert "Last month buy" in html
     assert "This month snack" not in html
     assert active_presets(html) == ["Last month"]
+    assert f'name="from" value="{last_month_start.isoformat()}"' in html
+    assert f'name="to" value="{last_month_end.isoformat()}"' in html
 
 
 def test_last_three_months_preset_covers_90_days(client, user, add_expense):
@@ -147,23 +158,38 @@ def test_last_three_months_preset_covers_90_days(client, user, add_expense):
     add_expense(user, 15.00, "Food", (today - timedelta(days=89)).isoformat(), "Within 90")
     add_expense(user, 15.00, "Food", (today - timedelta(days=120)).isoformat(), "Beyond 90")
 
-    start = (today - timedelta(days=90)).isoformat()
-    html = html_of(client.get(f"/profile?from={start}&to={today.isoformat()}"))
+    html = html_of(client.get("/profile?range=last_3_months"))
 
     assert "Within 90" in html
     assert "Beyond 90" not in html
     assert active_presets(html) == ["Last 3 months"]
 
 
-def test_preset_links_are_rendered(client, user):
+def test_this_month_preset_resolves_dates_at_request_time(client, user):
     today = date.today()
-    first_of_month = today.replace(day=1)
+    html = html_of(client.get("/profile?range=this_month"))
+
+    assert active_presets(html) == ["This month"]
+    assert f'name="from" value="{today.replace(day=1).isoformat()}"' in html
+    assert f'name="to" value="{today.isoformat()}"' in html
+
+
+def test_preset_links_carry_no_fixed_dates(client, user):
     html = html_of(client.get("/profile"))
 
-    for label in ["This month", "Last month", "Last 3 months", "All time"]:
+    for key, label in [("this_month", "This month"), ("last_month", "Last month"),
+                       ("last_3_months", "Last 3 months"), ("all", "All time")]:
+        assert f'href="/profile?range={key}"' in html
         assert f">{label}</a>" in html
-    assert f"/profile?from={first_of_month.isoformat()}&amp;to={today.isoformat()}" in html
-    assert "/profile?range=all" in html
+    assert 'href="/profile?from=' not in html
+
+
+def test_custom_range_matching_a_preset_is_labelled_custom(client, user):
+    today = date.today()
+    html = html_of(client.get(
+        f"/profile?from={today.replace(day=1).isoformat()}&to={today.isoformat()}"
+    ))
+    assert active_presets(html) == ["Custom"]
 
 
 def test_filter_form_uses_get(client, user):
@@ -184,23 +210,23 @@ def test_filter_form_uses_get(client, user):
     "from=2025/01/01&to=2025/01/31",
     "from=2025-01-01'%20OR%201=1--&to=2025-01-31",
     "range=everything",
+    "from=garbage&to=2020-01-31",
+    "from=2020-01-01&to=garbage",
+    "from=2020-01-01",
+    "to=2020-01-31",
 ])
 def test_invalid_params_fall_back_to_current_month(client, user, add_expense, query):
     add_expense(user, 999.00, "Bills", "2020-01-15", "Old bill")
+    add_expense(user, 12.00, "Food", date.today().isoformat(), "Today item")
 
     response = client.get(f"/profile?{query}")
     html = html_of(response)
 
     assert response.status_code == 200
     assert "Old bill" not in html
-    assert "Traceback" not in html
-
-
-def test_only_from_given_defaults_to_today(client, user, add_expense):
-    add_expense(user, 12.00, "Food", date.today().isoformat(), "Today item")
-    html = html_of(client.get("/profile?from=2020-01-01"))
     assert "Today item" in html
-    assert f'name="to" value="{date.today().isoformat()}"' in html
+    assert active_presets(html) == ["This month"]
+    assert "Traceback" not in html
 
 
 # ------------------------------------------------------------------ #
@@ -229,6 +255,48 @@ def test_other_users_expenses_are_never_shown(client, user, make_user, add_expen
     assert "Mine" in html
     assert "Not mine" not in html
     assert stat_values(html) == ["₹10.00", "1", "Food"]
+
+
+def test_transaction_table_is_capped_but_stats_count_everything(client, user, add_expense):
+    start = date(2024, 1, 1)
+    for i in range(55):
+        add_expense(user, 1.00, "Food", (start + timedelta(days=i)).isoformat(), f"Item {i}")
+
+    html = html_of(client.get("/profile?range=all"))
+
+    assert row_count(html) == 50
+    assert stat_values(html)[:2] == ["₹55.00", "55"]
+    assert "Showing the latest 50 of 55 transactions" in html
+    assert "Item 54" in html
+    assert "Item 4<" not in html
+
+
+def test_no_cap_note_when_everything_fits(client, user, add_expense):
+    add_expense(user, 5.00, "Food", "2025-03-10")
+    html = html_of(client.get("/profile?range=all"))
+    assert "Showing the latest" not in html
+
+
+def test_top_category_tie_matches_first_breakdown_row(client, user, add_expense):
+    add_expense(user, 50.00, "Shopping", "2025-03-10")
+    add_expense(user, 50.00, "Bills", "2025-03-11")
+
+    html = html_of(client.get("/profile?range=all"))
+
+    first_bar = re.search(r'profile-bar--(\w+)"', html).group(1)
+    assert stat_values(html)[2] == "Bills"
+    assert first_bar == "bills"
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("Asha", "A"),
+    ("asha rao", "AR"),
+    ("Maria Fernanda Lopez de la Cruz", "MC"),
+])
+def test_initials_use_first_and_last_word(client, make_user, login, name, expected):
+    login(make_user(name=name, email="initials@example.com"), name)
+    html = html_of(client.get("/profile"))
+    assert f'<div class="profile-avatar">{expected}</div>' in html
 
 
 def test_user_info_is_unaffected_by_filter(client, user, add_expense):

@@ -138,17 +138,83 @@ def logout():
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
 
+PRESET_LABELS = {
+    "this_month": "This month",
+    "last_month": "Last month",
+    "last_3_months": "Last 3 months",
+    "all": "All time",
+}
+TRANSACTION_LIMIT = 50
+
+
+def format_day(d):
+    return f"{d:%b} {d.day}, {d.year}"
+
+
 @app.route("/profile")
 @login_required
 def profile():
     user_id = session["user_id"]
+
+    today = date.today()
+    first_of_month = today.replace(day=1)
+    last_month_end = first_of_month - timedelta(days=1)
+    preset_ranges = {
+        "this_month": (first_of_month, today),
+        "last_month": (last_month_end.replace(day=1), last_month_end),
+        "last_3_months": (today - timedelta(days=90), today),
+        "all": (None, None),
+    }
+
+    range_key = request.args.get("range")
+    if range_key in preset_ranges:
+        active_preset = range_key
+        date_from, date_to = preset_ranges[range_key]
+    else:
+        try:
+            date_from = datetime.strptime(request.args.get("from", ""), "%Y-%m-%d").date()
+            date_to = datetime.strptime(request.args.get("to", ""), "%Y-%m-%d").date()
+        except ValueError:
+            active_preset = "this_month"
+            date_from, date_to = preset_ranges["this_month"]
+        else:
+            active_preset = "custom"
+            if date_from > date_to:
+                date_from, date_to = date_to, date_from
+
+    if date_from is None:
+        date_where, date_params = "", []
+    else:
+        date_where = "AND date >= ? AND date <= ?"
+        date_params = [date_from.isoformat(), date_to.isoformat()]
+
     conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT name, email, created_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if row is None:
+            session.clear()
+            flash("Please sign in to continue")
+            return redirect(url_for("login"))
 
-    row = conn.execute(
-        "SELECT name, email, created_at FROM users WHERE id = ?", (user_id,)
-    ).fetchone()
+        cat_rows = conn.execute(
+            f"SELECT category, SUM(amount) AS total, COUNT(*) AS cnt FROM expenses "
+            f"WHERE user_id = ? {date_where} "
+            f"GROUP BY category ORDER BY total DESC, category",
+            [user_id] + date_params,
+        ).fetchall()
 
-    initials = "".join(w[0].upper() for w in row["name"].split() if w)
+        txn_rows = conn.execute(
+            f"SELECT date, description, category, amount FROM expenses "
+            f"WHERE user_id = ? {date_where} ORDER BY date DESC, id DESC LIMIT ?",
+            [user_id] + date_params + [TRANSACTION_LIMIT],
+        ).fetchall()
+    finally:
+        conn.close()
+
+    parts = row["name"].split()
+    initials = (parts[0][0] + (parts[-1][0] if len(parts) > 1 else "")).upper()
     try:
         created_dt = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
         member_since = created_dt.strftime("%B %Y")
@@ -162,60 +228,12 @@ def profile():
         "member_since": member_since,
     }
 
-    today = date.today()
-    first_of_month = today.replace(day=1)
-    is_all_time = request.args.get("range") == "all"
-
-    if is_all_time:
-        date_from = None
-        date_to = None
-    else:
-        raw_from = request.args.get("from")
-        raw_to = request.args.get("to")
-        try:
-            date_from = datetime.strptime(raw_from, "%Y-%m-%d").date()
-        except (TypeError, ValueError):
-            date_from = first_of_month
-        try:
-            date_to = datetime.strptime(raw_to, "%Y-%m-%d").date()
-        except (TypeError, ValueError):
-            date_to = today
-        if date_from > date_to:
-            date_from, date_to = date_to, date_from
-
-    if is_all_time:
-        date_where = ""
-        date_params = []
-    else:
-        date_where = "AND e.date >= ? AND e.date <= ?"
-        date_params = [date_from.isoformat(), date_to.isoformat()]
-
-    stats_row = conn.execute(
-        f"SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt "
-        f"FROM expenses e WHERE e.user_id = ? {date_where}",
-        [user_id] + date_params,
-    ).fetchone()
-
-    total_spent = stats_row["total"]
-    transaction_count = stats_row["cnt"]
-
-    top_row = conn.execute(
-        f"SELECT category FROM expenses e WHERE e.user_id = ? {date_where} "
-        f"GROUP BY category ORDER BY SUM(amount) DESC LIMIT 1",
-        [user_id] + date_params,
-    ).fetchone()
-
+    total_spent = sum(c["total"] for c in cat_rows)
     stats = {
         "total_spent": f"₹{total_spent:.2f}",
-        "transaction_count": transaction_count,
-        "top_category": top_row["category"] if top_row else "—",
+        "transaction_count": sum(c["cnt"] for c in cat_rows),
+        "top_category": cat_rows[0]["category"] if cat_rows else "—",
     }
-
-    txn_rows = conn.execute(
-        f"SELECT date, description, category, amount FROM expenses e "
-        f"WHERE e.user_id = ? {date_where} ORDER BY e.date DESC",
-        [user_id] + date_params,
-    ).fetchall()
 
     transactions = [
         {
@@ -227,13 +245,6 @@ def profile():
         for r in txn_rows
     ]
 
-    cat_rows = conn.execute(
-        f"SELECT category, SUM(amount) AS total FROM expenses e "
-        f"WHERE e.user_id = ? {date_where} "
-        f"GROUP BY category ORDER BY total DESC",
-        [user_id] + date_params,
-    ).fetchall()
-
     categories = [
         {
             "name": c["category"],
@@ -243,40 +254,15 @@ def profile():
         for c in cat_rows
     ]
 
-    conn.close()
-
-    last_month_end = first_of_month - timedelta(days=1)
-    last_month_start = last_month_end.replace(day=1)
-    three_months_ago = today - timedelta(days=90)
-
     presets = [
-        {"label": "This month", "key": "this_month",
-         "url": url_for("profile", **{"from": first_of_month.isoformat(), "to": today.isoformat()})},
-        {"label": "Last month", "key": "last_month",
-         "url": url_for("profile", **{"from": last_month_start.isoformat(), "to": last_month_end.isoformat()})},
-        {"label": "Last 3 months", "key": "last_3_months",
-         "url": url_for("profile", **{"from": three_months_ago.isoformat(), "to": today.isoformat()})},
-        {"label": "All time", "key": "all",
-         "url": url_for("profile", range="all")},
+        {"key": key, "label": label, "url": url_for("profile", range=key)}
+        for key, label in PRESET_LABELS.items()
     ]
 
-    if is_all_time:
-        active_preset = "all"
-    elif date_from == first_of_month and date_to == today:
-        active_preset = "this_month"
-    elif date_from == last_month_start and date_to == last_month_end:
-        active_preset = "last_month"
-    elif date_from == three_months_ago and date_to == today:
-        active_preset = "last_3_months"
-    else:
-        active_preset = "custom"
-
-    day_fmt = "%#d" if os.name == "nt" else "%-d"
-    if is_all_time:
+    if date_from is None:
         date_label = "Showing all time"
     else:
-        fmt = f"%b {day_fmt}, %Y"
-        date_label = f"Showing {date_from.strftime(fmt)} – {date_to.strftime(fmt)}"
+        date_label = f"Showing {format_day(date_from)} – {format_day(date_to)}"
 
     return render_template(
         "profile.html",
