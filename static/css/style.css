@@ -698,6 +698,12 @@ a { color: inherit; text-decoration: none; }
     margin-bottom: 1.25rem;
 }
 
+.profile-card-note {
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+    margin: -0.75rem 0 1rem;
+}
+
 .profile-table-wrap {
     overflow-x: auto;
 }
@@ -808,6 +814,90 @@ a { color: inherit; text-decoration: none; }
 .profile-bar--entertainment  { background: var(--cat-entertainment); }
 .profile-bar--transport      { background: var(--cat-transport); }
 .profile-bar--other          { background: var(--cat-other); }
+
+.filter-bar {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.filter-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.filter-preset {
+    display: inline-block;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.filter-preset:hover {
+    color: var(--ink);
+    border-color: var(--ink-muted);
+}
+
+.filter-preset--active,
+.filter-preset--active:hover {
+    background: var(--accent);
+    color: var(--paper);
+    border-color: var(--accent);
+}
+
+.filter-custom {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.filter-dates {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.filter-field-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+}
+
+.filter-date-input {
+    width: auto;
+    max-width: 170px;
+    padding: 0.45rem 0.65rem;
+    font-size: 0.85rem;
+}
+
+.filter-btn {
+    padding: 0.45rem 1.1rem;
+    font-size: 0.85rem;
+}
+
+.filter-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+}
 
 /* ------------------------------------------------------------------ */
 /* Footer                                                              */
@@ -999,5 +1089,20 @@ a { color: inherit; text-decoration: none; }
     .profile-table th:nth-child(2),
     .profile-table td:nth-child(2) {
         display: none;
+    }
+
+    .filter-custom,
+    .filter-dates {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-date-input {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .filter-btn {
+        width: 100%;
     }
 }
